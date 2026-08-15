@@ -13,8 +13,6 @@
 #include <ATen/native/TensorIterator.h>
 #include <torch/library.h>
 
-#include <ATen/native/xpu/sycl/Dequant_int4.h>
-#include <ATen/native/xpu/sycl/LinearInt4.h>
 #include <comm/xpu_aten.h>
 
 namespace at::native {
@@ -47,6 +45,11 @@ Tensor _weight_int4pack_mm_xpu(
       ": expect qGroupSize to be 16, 32, 64, 128 or 256, got ",
       qGroupSize);
 
+  TORCH_CHECK(
+      qScaleAndZeros.dim() == 3 && qScaleAndZeros.size(2) == 2,
+      __func__,
+      ": expect qScaleAndZeros to be 3d tensor with last dim == 2");
+
   std::optional<Device> common_device = std::nullopt;
   c10::impl::check_and_update_common_device(
       common_device, A, "xpu::_weight_int4pack_mm", "A");
@@ -57,17 +60,16 @@ Tensor _weight_int4pack_mm_xpu(
       qScaleAndZeros,
       "xpu::_weight_int4pack_mm",
       "qScaleAndZeros");
-  Tensor C = at::empty({M, N}, A.options());
-  // When M > 1 will use two kernels(dequant and gemm)
-  // When M == 1 will use one linear_int4_kernel(dequant and gemv)
-  if (M > 1) {
-    Tensor B_dequant = at::empty({K, N}, A.options());
-    at::native::xpu::dequant_int4_kernel(
-        B, B_dequant, qGroupSize, qScaleAndZeros);
-    C = A.matmul(B_dequant);
-  } else {
-    at::native::xpu::linear_int4_kernel(A, B, qGroupSize, qScaleAndZeros, C);
-  }
-  return C;
+
+  // Convert B from [N, K/2] uint8/uint32 to [N, K/8] int32 if needed,
+  // split qScaleAndZeros into separate scale and zeros,
+  // and route to the 5-arg overload which uses oneDNN's fused W4A16.
+  Tensor B_int32 = (B.dtype() == kByte || B.dtype() == kUInt32)
+      ? _convert_weight_to_int4pack_xpu(B, /*innerKTiles=*/8)
+      : B;
+  Tensor qScale = qScaleAndZeros.select(-1, 0).contiguous();
+  Tensor qZeros = qScaleAndZeros.select(-1, 1).contiguous().to(kChar);
+
+  return _weight_int4pack_mm_xpu(A, B_int32, qGroupSize, qScale, qZeros);
 }
 } // namespace at::native
