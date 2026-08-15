@@ -16,14 +16,20 @@
 #include <comm/xpu_aten.h>
 
 namespace at::native {
+
+Tensor _convert_weight_to_int4pack_xpu(const Tensor& in, int64_t innerKTiles);
+Tensor _weight_int4pack_mm_xpu(
+    const Tensor& A,
+    const Tensor& B,
+    int64_t qGroupSize,
+    const Tensor& qScale,
+    const Tensor& qZeros);
+
 Tensor _weight_int4pack_mm_xpu(
     const Tensor& A,
     const Tensor& B,
     int64_t qGroupSize,
     const Tensor& qScaleAndZeros) {
-  auto M = A.size(0);
-  auto N = B.size(0);
-  auto K = A.size(1);
   TORCH_CHECK(
       A.dtype() == kBFloat16 || A.dtype() == kHalf || A.dtype() == kFloat,
       __func__,
