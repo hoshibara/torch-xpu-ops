@@ -28,8 +28,8 @@ struct WeightToInt4PackKernelFunctor {
 
     weight_packed_[out_y * K_div_8 + out_x] = 0x00000000;
     for (int i = 0; i < 4; i++) {
-      uint32_t low = weight_[in_y * K_div_2 + in_x + i] & 0x0000000F;
-      uint32_t high = weight_[in_y * K_div_2 + in_x + i] >> 4;
+      uint32_t low = weight_[in_y * K_div_2 + in_x + i] >> 4;
+      uint32_t high = weight_[in_y * K_div_2 + in_x + i] & 0x0000000F;
       uint32_t ele_i = (low) | (high << 4);
       weight_packed_[out_y * K_div_8 + out_x] |= ele_i << (i * 8);
     }
